@@ -33,6 +33,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     // NEW: enemy bullets + explosions
     private List<EnemyBullet> enemyBullets;
     private List<Explosion> explosions;
+    private Wall wall; // Wall shield
     
     // Game variables
     private long lastEnemySpawn = 0;
@@ -45,8 +46,18 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private long buffSpawnDelay = 6000; // spawn buff thường xuyên hơn (7 giây ban đầu)
     private boolean hasShield = false;
     private boolean hasAttackBuff = false;
+    private boolean hasTripleShot = false;
+    private boolean hasExplosiveBullet = false;
     private long attackBuffEndTime = 0;
+    private long tripleShotEndTime = 0;
+    private long explosiveBulletEndTime = 0;
     private long shieldEndTime = 0; // reserved
+    private boolean hasSpeedBoost = false;
+    private boolean hasImmortality = false;
+    private boolean hasWallShield = false;
+    private long speedBoostEndTime = 0;
+    private long immortalityEndTime = 0;
+    private long wallShieldEndTime = 0;
     
     // Score
     private int score = 0;
@@ -108,6 +119,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         stars = new ArrayList<>();
         enemyBullets = new ArrayList<>();
         explosions = new ArrayList<>();
+        wall = null; // Initialize wall as null
         
         initializeSoundPool();
         initializeBackgroundMusic();
@@ -234,7 +246,17 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
                 player.setTargetPosition(touchX, touchY);
                 long shootDelay = hasAttackBuff ? 150 : 300;
                 if (System.currentTimeMillis() - player.getLastShot() > shootDelay) {
-                    bullets.add(new Bullet(player.getX(), player.getY() - 50));
+                    if (hasTripleShot) {
+                        // Bắn 3 góc khác nhau: trái chéo, giữa, phải chéo
+                        float centerAngle = (float) Math.PI / 2; // 90 độ, thẳng lên
+                        float spread = (float) Math.toRadians(20); // 20 độ spread
+                        bullets.add(new Bullet(player.getX(), player.getY() - 50, hasExplosiveBullet, centerAngle - spread));
+                        bullets.add(new Bullet(player.getX(), player.getY() - 50, hasExplosiveBullet, centerAngle));
+                        bullets.add(new Bullet(player.getX(), player.getY() - 50, hasExplosiveBullet, centerAngle + spread));
+                    } else {
+                        // Bắn 1 tia
+                        bullets.add(new Bullet(player.getX(), player.getY() - 50, hasExplosiveBullet));
+                    }
                     player.setLastShot(System.currentTimeMillis());
                     playBulletSound();
                 }
@@ -252,7 +274,18 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         playWarningIfAtEdge();
 
         if (player != null) {
+            // Set tốc độ player dựa trên buff
+            if (hasSpeedBoost) {
+                player.setMaxSpeedPerUpdate(2400f); // Tăng gấp đôi tốc độ
+            } else {
+                player.setMaxSpeedPerUpdate(12f); // Tốc độ bình thường
+            }
             player.update();
+            
+            // Update wall position to follow player
+            if (wall != null) {
+                wall.setPosition(player.getX() - 50, player.getY() - 100);
+            }
         }
 
         // Duy trì tối thiểu 3 quái trên màn hình
@@ -269,7 +302,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         for (int i = bullets.size() - 1; i >= 0; i--) {
             Bullet bullet = bullets.get(i);
             bullet.update();
-            if (bullet.getY() < 0) bullets.remove(i);
+            if (bullet.getX() < -50 || bullet.getX() > screenWidth + 50 ||
+                bullet.getY() < -50 || bullet.getY() > screenHeight + 50) {
+                bullets.remove(i);
+            }
         }
 
         // Update enemies: di chuyển theo loại + shooter bắn
@@ -300,10 +336,57 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             }
         }
 
+        // Wall blocks enemy bullets
+        if (wall != null) {
+            for (int i = enemyBullets.size() - 1; i >= 0; i--) {
+                EnemyBullet eb = enemyBullets.get(i);
+                Rect ebRect = new Rect(
+                        (int)(eb.getX() - eb.getRadius()),
+                        (int)(eb.getY() - eb.getRadius()),
+                        (int)(eb.getX() + eb.getRadius()),
+                        (int)(eb.getY() + eb.getRadius())
+                );
+                if (wall.collidesWith(ebRect)) {
+                    enemyBullets.remove(i);
+                    explosions.add(new Explosion(eb.getX(), eb.getY()));
+                }
+            }
+        }
+
+        // Wall blocks enemies
+        if (wall != null) {
+            for (int i = enemies.size() - 1; i >= 0; i--) {
+                Enemy enemy = enemies.get(i);
+                Rect enemyRect = new Rect((int)enemy.getX(), (int)enemy.getY(), 
+                                        (int)enemy.getX() + enemy.getWidth(), 
+                                        (int)enemy.getY() + enemy.getHeight());
+                if (wall.collidesWith(enemyRect)) {
+                    enemies.remove(i);
+                    explosions.add(new Explosion(enemy.getX() + enemy.getWidth() / 2f,
+                                                enemy.getY() + enemy.getHeight() / 2f));
+                    maybeDropBuffAt(enemy.getX() + enemy.getWidth() / 2f,
+                                    enemy.getY() + enemy.getHeight() / 2f);
+                    score += 10;
+                    playHitSound();
+                }
+            }
+        }
+
         // Update buffs
         if (System.currentTimeMillis() - lastBuffSpawn > buffSpawnDelay) {
             int buffX = random.nextInt(screenWidth - 40);
-            Buff.BuffType buffType = random.nextBoolean() ? Buff.BuffType.SHIELD : Buff.BuffType.ATTACK;
+            Buff.BuffType buffType;
+            int rand = random.nextInt(7); // 7 loại buff
+            switch (rand) {
+                case 0: buffType = Buff.BuffType.SHIELD; break;
+                case 1: buffType = Buff.BuffType.ATTACK; break;
+                case 2: buffType = Buff.BuffType.TRIPLE_SHOT; break;
+                case 3: buffType = Buff.BuffType.EXPLOSIVE_BULLET; break;
+                case 4: buffType = Buff.BuffType.NO_SPEED_LIMIT; break;
+                case 5: buffType = Buff.BuffType.IMMORTALITY; break;
+                case 6: buffType = Buff.BuffType.WALL_SHIELD; break;
+                default: buffType = Buff.BuffType.SHIELD;
+            }
             buffs.add(new Buff(buffX, 0, buffType));
             lastBuffSpawn = System.currentTimeMillis();
             buffSpawnDelay = 4000 + random.nextInt(4000); // 4-8 giây giữa các lần spawn
@@ -319,6 +402,32 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         // Hết hạn attack buff
         if (hasAttackBuff && System.currentTimeMillis() > attackBuffEndTime) {
             hasAttackBuff = false;
+        }
+        
+        // Hết hạn triple shot buff
+        if (hasTripleShot && System.currentTimeMillis() > tripleShotEndTime) {
+            hasTripleShot = false;
+        }
+        
+        // Hết hạn explosive bullet buff
+        if (hasExplosiveBullet && System.currentTimeMillis() > explosiveBulletEndTime) {
+            hasExplosiveBullet = false;
+        }
+        
+        // Hết hạn speed boost buff
+        if (hasSpeedBoost && System.currentTimeMillis() > speedBoostEndTime) {
+            hasSpeedBoost = false;
+        }
+        
+        // Hết hạn immortality buff
+        if (hasImmortality && System.currentTimeMillis() > immortalityEndTime) {
+            hasImmortality = false;
+        }
+        
+        // Hết hạn wall shield buff
+        if (hasWallShield && System.currentTimeMillis() > wallShieldEndTime) {
+            hasWallShield = false;
+            wall = null; // Remove wall
         }
 
         // Va chạm
@@ -354,7 +463,18 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private void maybeDropBuffAt(float centerX, float centerY) {
         // 25% rơi buff (giảm tần suất)
         if (random.nextFloat() < 0.25f) {
-            Buff.BuffType buffType = random.nextBoolean() ? Buff.BuffType.SHIELD : Buff.BuffType.ATTACK;
+            Buff.BuffType buffType;
+            int rand = random.nextInt(7);
+            switch (rand) {
+                case 0: buffType = Buff.BuffType.SHIELD; break;
+                case 1: buffType = Buff.BuffType.ATTACK; break;
+                case 2: buffType = Buff.BuffType.TRIPLE_SHOT; break;
+                case 3: buffType = Buff.BuffType.EXPLOSIVE_BULLET; break;
+                case 4: buffType = Buff.BuffType.NO_SPEED_LIMIT; break;
+                case 5: buffType = Buff.BuffType.IMMORTALITY; break;
+                case 6: buffType = Buff.BuffType.WALL_SHIELD; break;
+                default: buffType = Buff.BuffType.SHIELD;
+            }
             // Điều chỉnh vị trí để vẽ từ góc trái trên của buff
             float bx = Math.max(0, Math.min(centerX - 20, screenWidth - 40));
             float by = Math.max(0, centerY - 20);
@@ -397,10 +517,38 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
                                         (int)enemy.getY() + enemy.getHeight());
                 if (Rect.intersects(bulletRect, enemyRect)) {
                     // Nổ trên quái
-                    explosions.add(new Explosion(
-                            enemy.getX() + enemy.getWidth() / 2f,
-                            enemy.getY() + enemy.getHeight() / 2f
-                    ));
+                    if (bullet.isExplosive()) {
+                        // Đạn nổ lớn hơn và gây sát thương vùng
+                        explosions.add(new Explosion(
+                                enemy.getX() + enemy.getWidth() / 2f,
+                                enemy.getY() + enemy.getHeight() / 2f,
+                                180f, 800 // Tăng radius từ 150 lên 180, duration từ 600 lên 800
+                        ));
+                        // Kiểm tra và gây sát thương cho các quái khác trong vùng nổ
+                        float explosionX = enemy.getX() + enemy.getWidth() / 2f;
+                        float explosionY = enemy.getY() + enemy.getHeight() / 2f;
+                        for (int k = enemies.size() - 1; k >= 0; k--) {
+                            if (k == j) continue; // bỏ qua enemy đã bị nổ
+                            Enemy otherEnemy = enemies.get(k);
+                            float dx = (otherEnemy.getX() + otherEnemy.getWidth()/2f) - explosionX;
+                            float dy = (otherEnemy.getY() + otherEnemy.getHeight()/2f) - explosionY;
+                            if (dx*dx + dy*dy <= 10000) { // bán kính 100
+                                explosions.add(new Explosion(
+                                        otherEnemy.getX() + otherEnemy.getWidth() / 2f,
+                                        otherEnemy.getY() + otherEnemy.getHeight() / 2f
+                                ));
+                                maybeDropBuffAt(otherEnemy.getX() + otherEnemy.getWidth() / 2f,
+                                                otherEnemy.getY() + otherEnemy.getHeight() / 2f);
+                                enemies.remove(k);
+                                score += 10;
+                            }
+                        }
+                    } else {
+                        explosions.add(new Explosion(
+                                enemy.getX() + enemy.getWidth() / 2f,
+                                enemy.getY() + enemy.getHeight() / 2f
+                        ));
+                    }
                     // Thường xuyên rơi buff khi quái nổ
                     maybeDropBuffAt(enemy.getX() + enemy.getWidth() / 2f,
                                     enemy.getY() + enemy.getHeight() / 2f);
@@ -493,11 +641,42 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
                 hasAttackBuff = true;
                 attackBuffEndTime = System.currentTimeMillis() + 10000;
                 break;
+            case TRIPLE_SHOT:
+                hasTripleShot = true;
+                tripleShotEndTime = System.currentTimeMillis() + 15000; // 15 giây
+                break;
+            case EXPLOSIVE_BULLET:
+                hasExplosiveBullet = true;
+                explosiveBulletEndTime = System.currentTimeMillis() + 12000; // 12 giây
+                break;
+            case NO_SPEED_LIMIT:
+                hasSpeedBoost = true;
+                speedBoostEndTime = System.currentTimeMillis() + 10000; // 10 giây
+                break;
+            case IMMORTALITY:
+                hasImmortality = true;
+                immortalityEndTime = System.currentTimeMillis() + 8000; // 8 giây
+                break;
+            case WALL_SHIELD:
+                hasWallShield = true;
+                wallShieldEndTime = System.currentTimeMillis() + 12000; // 12 giây
+                // Create wall in front of player
+                if (player != null) {
+                    float wallX = player.getX() - 50; // Left of player
+                    float wallY = player.getY() - 100; // Above player
+                    wall = new Wall(wallX, wallY, 100, 25); // Smaller wall: 100x25
+                }
+                break;
         }
     }
 
     // Giảm mạng người chơi và áp dụng bất tử ngắn
     private void handlePlayerDamaged() {
+        // Nếu có immortality buff, không bị damage
+        if (hasImmortality) {
+            return;
+        }
+        
         long now = System.currentTimeMillis();
         if (now - lastDamageTime < damageCooldownMs) {
             return; // đang bất tử ngắn, bỏ qua sát thương
@@ -506,20 +685,24 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         explosions.add(new Explosion(player.getX(), player.getY()));
         lives -= 1;
         if (lives <= 0) {
+            // Hiệu ứng nổ lớn khi game over
+            explosions.add(new Explosion(player.getX(), player.getY(), 200f, 800));
             gameOver = true;
             isPlaying = false;
         }
     }
     
     public void draw(Canvas canvas) {
+        super.draw(canvas);
         if (canvas == null) return;
         drawSpaceBackground(canvas);
 
-        if (player != null) {
-            // Hiệu ứng nhấp nháy khi đang bất tử sau khi dính đòn
+        if (player != null && !gameOver) {
+            // Hiệu ứng nhấp nháy khi đang bất tử sau khi dính đòn hoặc có immortality buff
             boolean invulnerable = (System.currentTimeMillis() - lastDamageTime) < damageCooldownMs;
+            boolean immortalityActive = hasImmortality;
             boolean shouldDraw = true;
-            if (invulnerable) {
+            if (invulnerable || immortalityActive) {
                 // nhấp nháy ~10 lần/giây
                 long t = System.currentTimeMillis();
                 shouldDraw = ((t / 100) % 2) == 0;
@@ -558,6 +741,11 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             ex.draw(canvas, paint);
         }
 
+        // Vẽ wall shield
+        if (wall != null) {
+            wall.draw(canvas, paint);
+        }
+
         if (musicButton != null) musicButton.draw(canvas, paint);
         if (soundButton != null) soundButton.draw(canvas, paint);
 
@@ -579,6 +767,36 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             paint.setColor(Color.RED);
             long remainingTime = (attackBuffEndTime - System.currentTimeMillis()) / 1000;
             canvas.drawText("ATTACK BOOST: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasTripleShot) {
+            paint.setColor(Color.YELLOW);
+            long remainingTime = (tripleShotEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("TRIPLE SHOT: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasExplosiveBullet) {
+            paint.setColor(Color.rgb(255, 165, 0));
+            long remainingTime = (explosiveBulletEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("EXPLOSIVE BULLET: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasSpeedBoost) {
+            paint.setColor(Color.MAGENTA);
+            long remainingTime = (speedBoostEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("NO SPEED LIMIT: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasImmortality) {
+            paint.setColor(Color.rgb(255, 20, 147));
+            long remainingTime = (immortalityEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("IMMORTALITY: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasWallShield) {
+            paint.setColor(Color.CYAN);
+            long remainingTime = (wallShieldEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("WALL SHIELD: " + remainingTime + "s", 50, buffTextY, paint);
             buffTextY += 45;
         }
 
@@ -758,6 +976,41 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     
     public boolean isMusicEnabled() {
         return musicEnabled;
+    }
+    
+    private static class Wall {
+        private float x, y, width, height;
+        
+        public Wall(float x, float y, float width, float height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+        
+        public void setPosition(float x, float y) {
+            this.x = x;
+            this.y = y;
+        }
+        
+        public void draw(Canvas canvas, Paint paint) {
+            paint.setColor(Color.CYAN);
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawRect(x, y, x + width, y + height, paint);
+            paint.setColor(Color.WHITE);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3);
+            canvas.drawRect(x, y, x + width, y + height, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+        
+        public Rect getRect() {
+            return new Rect((int)x, (int)y, (int)(x + width), (int)(y + height));
+        }
+        
+        public boolean collidesWith(Rect other) {
+            return Rect.intersects(getRect(), other);
+        }
     }
     
     private static class GameButton {
