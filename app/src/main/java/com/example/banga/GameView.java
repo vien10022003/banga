@@ -1,6 +1,8 @@
 package com.example.banga;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -62,6 +64,13 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     // Score
     private int score = 0;
     private boolean gameOver = false;
+
+    // Win condition variables
+    private int enemiesKilled = 0;
+    private static final int ENEMIES_TO_WIN = 50;
+    private boolean gameWon = false;
+    private int congratulationSoundId;
+    private Bitmap congratulationsImage;
     
     // Lives system
     private int lives = 2; // số mạng ban đầu
@@ -88,15 +97,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private GameButton soundButton;
     private boolean buttonsInitialized = false;
 
-	// Game Over UI
-	private Bitmap gameOverImage;
-	private Bitmap youLoseImage;
-	private float btnWidth = 300;
-	private float btnHeight = 90;
-	private float btnSpacing = 25;
-	private android.graphics.RectF btnReplayRect;
-	private android.graphics.RectF btnHomeRect;
-	private android.graphics.RectF btnHighScoresRect;
+    // Game Over and Win UI buttons
+    private Rect btnReplayRect;
+    private Rect btnHomeRect;
+    private Rect btnHighScoresRect;
     
     // Warning system
     private long lastWarningTime = 0;
@@ -133,6 +137,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         
         initializeSoundPool();
         initializeBackgroundMusic();
+        loadCongratulationsAssets();
     }
     
     private void initializeSoundPool() {
@@ -154,6 +159,16 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             bulletSoundId = soundPool.load(context, R.raw.bullet, 1);
             hitSoundId = soundPool.load(context, R.raw.hit, 1);
             warningSoundId = soundPool.load(context, R.raw.warning, 1);
+            congratulationSoundId = soundPool.load(context, R.raw.congratulation, 1);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void loadCongratulationsAssets() {
+        try {
+            // Load congratulations image
+            congratulationsImage = BitmapFactory.decodeResource(getResources(), R.drawable.congratulations);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -196,10 +211,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         screenWidth = getWidth();
         screenHeight = getHeight();
         player = new Player(screenWidth / 2, screenHeight - 200);
-		initializeButtons();
-		createStars();
-		loadGameOverAssets();
-		initGameOverButtons();
+        initializeButtons();
+        createStars();
         isPlaying = true;
         gameThread = new GameThread(getHolder(), this);
         gameThread.setRunning(true);
@@ -227,41 +240,73 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-		if (event.getAction() == MotionEvent.ACTION_DOWN) {
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
             float touchX = event.getX();
             float touchY = event.getY();
 
-			// Handle Game Over buttons
-			if (gameOver) {
-				if (btnReplayRect != null && btnReplayRect.contains(touchX, touchY)) {
-					restartGame();
-					return true;
-				}
-				if (btnHomeRect != null && btnHomeRect.contains(touchX, touchY)) {
-					if (context instanceof GameActivity) {
-						((GameActivity) context).finish();
-					}
-					return true;
-				}
-				if (btnHighScoresRect != null && btnHighScoresRect.contains(touchX, touchY)) {
-					// Placeholder
-					return true;
-				}
-			}
-            if (musicButton != null && musicButton.isPressed(touchX, touchY)) {
-                musicButton.toggle();
-                musicEnabled = musicButton.isEnabled();
-                if (musicEnabled) startBackgroundMusic(); else pauseBackgroundMusic();
-                return true;
+            // Handle Win screen buttons
+            if (gameWon) {
+                if (btnReplayRect != null && btnReplayRect.contains((int)touchX, (int)touchY)) {
+                    restartGame();
+                    return true;
+                }
+                if (btnHomeRect != null && btnHomeRect.contains((int)touchX, (int)touchY)) {
+                    // Quay về MainActivity và clear tất cả activity khác
+                    Intent intent = new Intent(context, MainActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    context.startActivity(intent);
+                    if (context instanceof Activity) {
+                        ((Activity) context).finish();
+                    }
+                    return true;
+                }
+                if (btnHighScoresRect != null && btnHighScoresRect.contains((int)touchX, (int)touchY)) {
+                    Intent intent = new Intent(context, HighScoreActivity.class);
+                    context.startActivity(intent);
+                    return true;
+                }
             }
-            if (soundButton != null && soundButton.isPressed(touchX, touchY)) {
-                soundButton.toggle();
-                soundEffectsEnabled = soundButton.isEnabled();
-                return true;
+
+            // Handle Game Over buttons
+            if (gameOver) {
+                if (btnReplayRect != null && btnReplayRect.contains((int)touchX, (int)touchY)) {
+                    restartGame();
+                    return true;
+                }
+                if (btnHomeRect != null && btnHomeRect.contains((int)touchX, (int)touchY)) {
+                    // Quay về MainActivity và clear tất cả activity khác
+                    Intent intent = new Intent(context, MainActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    context.startActivity(intent);
+                    if (context instanceof Activity) {
+                        ((Activity) context).finish();
+                    }
+                    return true;
+                }
+                if (btnHighScoresRect != null && btnHighScoresRect.contains((int)touchX, (int)touchY)) {
+                    Intent intent = new Intent(context, HighScoreActivity.class);
+                    context.startActivity(intent);
+                    return true;
+                }
+            }
+
+            // Only handle UI buttons when game is active
+            if (!gameOver && !gameWon) {
+                if (musicButton != null && musicButton.isPressed(touchX, touchY)) {
+                    musicButton.toggle();
+                    musicEnabled = musicButton.isEnabled();
+                    if (musicEnabled) startBackgroundMusic(); else pauseBackgroundMusic();
+                    return true;
+                }
+                if (soundButton != null && soundButton.isPressed(touchX, touchY)) {
+                    soundButton.toggle();
+                    soundEffectsEnabled = soundButton.isEnabled();
+                    return true;
+                }
             }
         }
-        
-        if (event.getAction() == MotionEvent.ACTION_DOWN || 
+        // Only allow gameplay when game is active
+        if (!gameOver && !gameWon && event.getAction() == MotionEvent.ACTION_DOWN || 
             event.getAction() == MotionEvent.ACTION_MOVE) {
             float touchX = event.getX();
             float touchY = event.getY();
@@ -295,6 +340,44 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             playerAtEdge = false;
         }
         return true;
+    }
+    
+    private void restartGame() {
+        gameOver = false;
+        gameWon = false;
+        lives = 2;
+        score = 0;
+        enemiesKilled = 0;
+        isPlaying = true;
+        
+        // Clear all game objects
+        enemies.clear();
+        bullets.clear();
+        buffs.clear();
+        enemyBullets.clear();
+        explosions.clear();
+        
+        // Reset buffs
+        hasShield = false;
+        hasAttackBuff = false;
+        hasTripleShot = false;
+        hasExplosiveBullet = false;
+        hasSpeedBoost = false;
+        hasImmortality = false;
+        hasWallShield = false;
+        wall = null;
+        
+        // Reset player position
+        if (player != null) {
+            player.setPosition(screenWidth / 2, screenHeight - 200);
+        }
+        
+        // Reset spawn timers
+        lastEnemySpawn = 0;
+        lastBuffSpawn = 0;
+        enemySpawnDelay = 2000;
+        
+        startBackgroundMusic();
     }
     
     public void update() {
@@ -570,7 +653,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
                                 maybeDropBuffAt(otherEnemy.getX() + otherEnemy.getWidth() / 2f,
                                                 otherEnemy.getY() + otherEnemy.getHeight() / 2f);
                                 enemies.remove(k);
-                                score += 10;
+                                // Calculate score based on enemy type and increase enemies killed
+                                int pointsEarned = getPointsForEnemyType(otherEnemy.getType());
+                                score += pointsEarned;
+                                enemiesKilled++;
                             }
                         }
                     } else {
@@ -582,9 +668,26 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
                     // Thường xuyên rơi buff khi quái nổ
                     maybeDropBuffAt(enemy.getX() + enemy.getWidth() / 2f,
                                     enemy.getY() + enemy.getHeight() / 2f);
+                    
+                    // Calculate score based on enemy type and increase enemies killed
+                    int pointsEarned = getPointsForEnemyType(enemy.getType());
+                    score += pointsEarned;
+                    enemiesKilled++;
+                    
+                    // Check win condition
+                    if (enemiesKilled >= ENEMIES_TO_WIN && !gameWon) {
+                        gameWon = true;
+                        isPlaying = false;
+                        playCongratulationSound();
+                        pauseBackgroundMusic();
+                        
+                        // Save high score when game won
+                        HighScoreManager highScoreManager = new HighScoreManager(context);
+                        highScoreManager.saveScore(score);
+                    }
+                    
                     bullets.remove(i);
                     enemies.remove(j);
-                    score += 10;
                     playHitSound();
                     bulletConsumed = true;
                     break;
@@ -719,6 +822,12 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             explosions.add(new Explosion(player.getX(), player.getY(), 200f, 800));
             gameOver = true;
             isPlaying = false;
+            
+            // Save high score when game over
+            HighScoreManager highScoreManager = new HighScoreManager(context);
+            highScoreManager.saveScore(score);
+            
+            pauseBackgroundMusic();
         }
     }
     
@@ -727,7 +836,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         if (canvas == null) return;
         drawSpaceBackground(canvas);
 
-        if (player != null && !gameOver) {
+        if (player != null && !gameOver && !gameWon) {
             // Hiệu ứng nhấp nháy khi đang bất tử sau khi dính đòn hoặc có immortality buff
             boolean invulnerable = (System.currentTimeMillis() - lastDamageTime) < damageCooldownMs;
             boolean immortalityActive = hasImmortality;
@@ -779,19 +888,75 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         if (musicButton != null) musicButton.draw(canvas, paint);
         if (soundButton != null) soundButton.draw(canvas, paint);
 
-		// Bảng 3 thông số quan trọng: HP, Attack Buff, Shell
-		drawImportantInfoPanel(canvas);
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(50);
+        canvas.drawText("Score: " + score, 50, 100, paint);
 
-		// Score ở góc trên phải, tránh trùng với panel
-		paint.setColor(Color.WHITE);
-		paint.setTextSize(42);
-		String scoreText = "Score: " + score;
-		float scoreWidth = paint.measureText(scoreText);
-		canvas.drawText(scoreText, screenWidth - 30 - scoreWidth, 80, paint);
+        // Vẽ số mạng (trái tim)
+        drawLives(canvas);
 
-		if (gameOver) {
-			drawGameOverOverlay(canvas);
-		}
+        int buffTextY = 160;
+        paint.setTextSize(35);
+        if (hasShield) {
+            paint.setColor(Color.BLUE);
+            canvas.drawText("SHIELD ACTIVE", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasAttackBuff) {
+            paint.setColor(Color.RED);
+            long remainingTime = (attackBuffEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("ATTACK BOOST: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasTripleShot) {
+            paint.setColor(Color.YELLOW);
+            long remainingTime = (tripleShotEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("TRIPLE SHOT: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasExplosiveBullet) {
+            paint.setColor(Color.rgb(255, 165, 0));
+            long remainingTime = (explosiveBulletEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("EXPLOSIVE BULLET: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasSpeedBoost) {
+            paint.setColor(Color.MAGENTA);
+            long remainingTime = (speedBoostEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("NO SPEED LIMIT: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasImmortality) {
+            paint.setColor(Color.rgb(255, 20, 147));
+            long remainingTime = (immortalityEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("IMMORTALITY: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+        if (hasWallShield) {
+            paint.setColor(Color.CYAN);
+            long remainingTime = (wallShieldEndTime - System.currentTimeMillis()) / 1000;
+            canvas.drawText("WALL SHIELD: " + remainingTime + "s", 50, buffTextY, paint);
+            buffTextY += 45;
+        }
+
+        if (!gameOver && !gameWon) {
+            // Draw score and lives
+            paint.setColor(Color.WHITE);
+            paint.setTextSize(35);
+            canvas.drawText("Score: " + score, 50, 50, paint);
+            canvas.drawText("Lives: " + lives, 50, 100, paint);
+            canvas.drawText("Enemies: " + enemiesKilled + "/" + ENEMIES_TO_WIN, 50, 150, paint);
+            
+            // Draw UI buttons if initialized
+            if (musicButton != null) musicButton.draw(canvas, paint);
+            if (soundButton != null) soundButton.draw(canvas, paint);
+        }
+
+        if (gameWon) {
+            drawWinOverlay(canvas);
+        } else if (gameOver) {
+            drawGameOverOverlay(canvas);
+        }
     }
     
     public void resume() {
@@ -853,6 +1018,26 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         }
     }
     
+    private void playCongratulationSound() {
+        try {
+            if (soundPool != null && soundLoaded && soundEffectsEnabled) {
+                soundPool.play(congratulationSoundId, 0.8f, 0.8f, 1, 0, 1.0f);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private int getPointsForEnemyType(Enemy.Type type) {
+        switch (type) {
+            case BASIC: return 10;
+            case FAST: return 15;
+            case DIVER: return 20;
+            case SHOOTER: return 25;
+            default: return 10;
+        }
+    }
+    
     public void cleanup() {
         stopBackgroundMusic();
         if (musicButton != null) musicButton.cleanup();
@@ -861,6 +1046,135 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             soundPool.release();
             soundPool = null;
         }
+    }
+    
+    private void drawWinOverlay(Canvas canvas) {
+        // Draw semi-transparent overlay
+        paint.setColor(Color.argb(150, 0, 100, 0)); // Dark green overlay
+        canvas.drawRect(0, 0, screenWidth, screenHeight, paint);
+        
+        // Draw congratulations image if available
+        if (congratulationsImage != null) {
+            float imageWidth = congratulationsImage.getWidth();
+            float imageHeight = congratulationsImage.getHeight();
+            float scale = Math.min(screenWidth * 0.8f / imageWidth, screenHeight * 0.3f / imageHeight);
+            
+            int scaledWidth = (int)(imageWidth * scale);
+            int scaledHeight = (int)(imageHeight * scale);
+            
+            Bitmap scaledImage = Bitmap.createScaledBitmap(congratulationsImage, scaledWidth, scaledHeight, true);
+            float x = (screenWidth - scaledWidth) / 2f;
+            float y = screenHeight / 2f - 200;
+            
+            canvas.drawBitmap(scaledImage, x, y, paint);
+        } else {
+            // Fallback text if image not available
+            paint.setColor(Color.YELLOW);
+            paint.setTextSize(80);
+            paint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText("Congratulations!", screenWidth / 2f, screenHeight / 2f - 100, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+        
+        // Victory message
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(50);
+        paint.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText("YOU WIN!", screenWidth / 2f, screenHeight / 2f + 50, paint);
+        
+        paint.setTextSize(40);
+        canvas.drawText("Final Score: " + score, screenWidth / 2f, screenHeight / 2f + 100, paint);
+        canvas.drawText("Enemies Defeated: " + enemiesKilled, screenWidth / 2f, screenHeight / 2f + 150, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+        
+        // Create buttons
+        int buttonWidth = 180;
+        int buttonHeight = 60;
+        int buttonSpacing = 20;
+        int totalButtonsWidth = 3 * buttonWidth + 2 * buttonSpacing;
+        int startX = (screenWidth - totalButtonsWidth) / 2;
+        int buttonY = screenHeight / 2 + 220;
+        
+        btnReplayRect = new Rect(startX, buttonY, startX + buttonWidth, buttonY + buttonHeight);
+        btnHomeRect = new Rect(startX + buttonWidth + buttonSpacing, buttonY, 
+                              startX + 2 * buttonWidth + buttonSpacing, buttonY + buttonHeight);
+        btnHighScoresRect = new Rect(startX + 2 * (buttonWidth + buttonSpacing), buttonY,
+                                    startX + 3 * buttonWidth + 2 * buttonSpacing, buttonY + buttonHeight);
+        
+        drawButton(canvas, btnReplayRect, "REPLAY", Color.GREEN);
+        drawButton(canvas, btnHomeRect, "HOME", Color.CYAN);
+        drawButton(canvas, btnHighScoresRect, "HIGH SCORES", Color.YELLOW);
+    }
+    
+    private void drawGameOverOverlay(Canvas canvas) {
+        // Draw semi-transparent overlay
+        paint.setColor(Color.argb(150, 0, 0, 0));
+        canvas.drawRect(0, 0, screenWidth, screenHeight, paint);
+        
+        // Game Over text
+        paint.setColor(Color.RED);
+        paint.setTextSize(100);
+        paint.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText("GAME OVER", screenWidth / 2f, screenHeight / 2f - 50, paint);
+        
+        paint.setTextSize(50);
+        paint.setColor(Color.WHITE);
+        canvas.drawText("Final Score: " + score, screenWidth / 2f, screenHeight / 2f + 50, paint);
+        canvas.drawText("Enemies Defeated: " + enemiesKilled, screenWidth / 2f, screenHeight / 2f + 100, paint);
+        
+        // Check and show if it's a new high score
+        HighScoreManager highScoreManager = new HighScoreManager(context);
+        if (highScoreManager.isNewHighScore(score)) {
+            paint.setColor(Color.YELLOW);
+            paint.setTextSize(36);
+            canvas.drawText("NEW HIGH SCORE!", screenWidth / 2f, screenHeight / 2f + 150, paint);
+        }
+        
+        // Show current highest score
+        paint.setColor(Color.CYAN);
+        paint.setTextSize(32);
+        canvas.drawText("Best: " + highScoreManager.getHighestScore(), screenWidth / 2f, screenHeight / 2f + 190, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+        
+        // Create buttons (moved down to make room for high score info)
+        int buttonWidth = 180;
+        int buttonHeight = 60;
+        int buttonSpacing = 20;
+        int totalButtonsWidth = 3 * buttonWidth + 2 * buttonSpacing;
+        int startX = (screenWidth - totalButtonsWidth) / 2;
+        int buttonY = screenHeight / 2 + 250;
+        
+        btnReplayRect = new Rect(startX, buttonY, startX + buttonWidth, buttonY + buttonHeight);
+        btnHomeRect = new Rect(startX + buttonWidth + buttonSpacing, buttonY, 
+                              startX + 2 * buttonWidth + buttonSpacing, buttonY + buttonHeight);
+        btnHighScoresRect = new Rect(startX + 2 * (buttonWidth + buttonSpacing), buttonY,
+                                    startX + 3 * buttonWidth + 2 * buttonSpacing, buttonY + buttonHeight);
+        
+        drawButton(canvas, btnReplayRect, "REPLAY", Color.GREEN);
+        drawButton(canvas, btnHomeRect, "HOME", Color.CYAN);
+        drawButton(canvas, btnHighScoresRect, "HIGH SCORES", Color.YELLOW);
+    }
+    
+    private void drawButton(Canvas canvas, Rect rect, String text, int color) {
+        // Draw button background
+        paint.setColor(Color.argb(180, Color.red(color), Color.green(color), Color.blue(color)));
+        canvas.drawRoundRect(rect.left, rect.top, rect.right, rect.bottom, 10, 10, paint);
+        
+        // Draw button border
+        paint.setColor(color);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3);
+        canvas.drawRoundRect(rect.left, rect.top, rect.right, rect.bottom, 10, 10, paint);
+        paint.setStyle(Paint.Style.FILL);
+        
+        // Draw button text
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(24);
+        paint.setTextAlign(Paint.Align.CENTER);
+        float textX = rect.centerX();
+        float textY = rect.centerY() + 8; // Center vertically
+        canvas.drawText(text, textX, textY, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
     }
     
     private void createStars() {
@@ -907,120 +1221,6 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         }
     }
 
-    // === Game Over helpers ===
-    private void loadGameOverAssets() {
-        try {
-            int goId = getResources().getIdentifier("gameover", "drawable", getContext().getPackageName());
-            if (goId != 0) {
-                Bitmap raw = BitmapFactory.decodeResource(getResources(), goId);
-                int maxW = Math.min(screenWidth - 160, raw.getWidth());
-                float scale = (float) maxW / raw.getWidth();
-                int h = (int) (raw.getHeight() * scale);
-                gameOverImage = Bitmap.createScaledBitmap(raw, maxW, h, true);
-            }
-            int ylId = getResources().getIdentifier("you_lose", "drawable", getContext().getPackageName());
-            if (ylId != 0) {
-                Bitmap raw2 = BitmapFactory.decodeResource(getResources(), ylId);
-                int maxW2 = Math.min(screenWidth - 160, raw2.getWidth());
-                float scale2 = (float) maxW2 / raw2.getWidth();
-                int h2 = (int) (raw2.getHeight() * scale2);
-                youLoseImage = Bitmap.createScaledBitmap(raw2, maxW2, h2, true);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void initGameOverButtons() {
-        float startX = (screenWidth - btnWidth) / 2f;
-        float startY = screenHeight / 2f + 120;
-        btnReplayRect = new android.graphics.RectF(startX, startY, startX + btnWidth, startY + btnHeight);
-        btnHomeRect = new android.graphics.RectF(startX, startY + (btnHeight + btnSpacing), startX + btnWidth, startY + (btnHeight + btnSpacing) + btnHeight);
-        btnHighScoresRect = new android.graphics.RectF(startX, startY + (btnHeight + btnSpacing) * 2, startX + btnWidth, startY + (btnHeight + btnSpacing) * 2 + btnHeight);
-    }
-
-    private void drawButton(Canvas canvas, android.graphics.RectF rect, String text, int borderColor) {
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.argb(180, 0, 0, 0));
-        canvas.drawRoundRect(rect, 16, 16, paint);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(4);
-        paint.setColor(borderColor);
-        canvas.drawRoundRect(rect, 16, 16, paint);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.WHITE);
-        paint.setTextSize(40);
-        paint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText(text, rect.centerX(), rect.centerY() + 14, paint);
-        paint.setTextAlign(Paint.Align.LEFT);
-    }
-
-    private void drawGameOverOverlay(Canvas canvas) {
-        paint.setColor(Color.argb(180, 0, 0, 0));
-        paint.setStyle(Paint.Style.FILL);
-        canvas.drawRect(0, 0, screenWidth, screenHeight, paint);
-
-        Bitmap img = null;
-        if (youLoseImage != null && gameOverImage != null) {
-            img = ((System.currentTimeMillis() / 1000) % 2 == 0) ? youLoseImage : gameOverImage;
-        } else if (youLoseImage != null) {
-            img = youLoseImage;
-        } else if (gameOverImage != null) {
-            img = gameOverImage;
-        }
-        if (img != null) {
-            int x = (int)(screenWidth / 2f - img.getWidth() / 2f);
-            int y = (int)(screenHeight / 2f - img.getHeight() / 2f - 80);
-            canvas.drawBitmap(img, x, y, paint);
-        } else {
-            paint.setColor(Color.RED);
-            paint.setTextSize(100);
-            paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText("GAME OVER", screenWidth / 2f, screenHeight / 2f - 40, paint);
-            paint.setTextAlign(Paint.Align.LEFT);
-        }
-
-        paint.setColor(Color.WHITE);
-        paint.setTextSize(46);
-        paint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText("Final Score: " + score, screenWidth / 2f, screenHeight / 2f + 40, paint);
-        paint.setTextAlign(Paint.Align.LEFT);
-
-        drawButton(canvas, btnReplayRect, "REPLAY", Color.GREEN);
-        drawButton(canvas, btnHomeRect, "HOME", Color.CYAN);
-        drawButton(canvas, btnHighScoresRect, "HIGH SCORES", Color.YELLOW);
-    }
-
-    private void restartGame() {
-        // Reset state, including buffs and wall
-        score = 0;
-        lives = 2;
-        hasShield = false;
-        hasAttackBuff = false;
-        hasTripleShot = false;
-        hasExplosiveBullet = false;
-        hasSpeedBoost = false;
-        hasImmortality = false;
-        hasWallShield = false;
-        attackBuffEndTime = 0;
-        tripleShotEndTime = 0;
-        explosiveBulletEndTime = 0;
-        speedBoostEndTime = 0;
-        immortalityEndTime = 0;
-        wallShieldEndTime = 0;
-        wall = null;
-
-        bullets.clear();
-        enemies.clear();
-        buffs.clear();
-        enemyBullets.clear();
-        explosions.clear();
-        gameOver = false;
-        isPlaying = true;
-        if (player != null) {
-            player.setPosition(screenWidth / 2f, screenHeight - 200);
-        }
-    }
     private void drawHeart(Canvas canvas, int cx, int cy, int size, int color) {
         paint.setColor(color);
         paint.setStyle(Paint.Style.FILL);
@@ -1037,103 +1237,6 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         canvas.drawPath(p, paint);
         paint.setStyle(Paint.Style.FILL);
     }
-
-	// Panel thông tin: luôn có 3 dòng cơ bản (HP, Attack Buff, Shell) và tự mở rộng cho buff khác khi ACTIVE
-	private void drawImportantInfoPanel(Canvas canvas) {
-		int panelLeft = 30;
-		int panelTop = 40;
-		int x = panelLeft + 20;
-		int lineHeight = 58; // khoảng cách dòng
-		int contentTop = panelTop + 55;
-
-		// Tính số dòng cần hiển thị
-		int lines = 3; // HP, Attack Buff, Shell
-		if (hasTripleShot) lines++;
-		if (hasExplosiveBullet) lines++;
-		if (hasSpeedBoost) lines++;
-		if (hasImmortality) lines++;
-		if (hasWallShield) lines++;
-
-		int panelRight = panelLeft + 560;
-		int panelBottom = contentTop + lines * lineHeight;
-
-		// Nền
-		paint.setStyle(Paint.Style.FILL);
-		paint.setColor(Color.argb(150, 0, 0, 0));
-		canvas.drawRoundRect(new android.graphics.RectF(panelLeft, panelTop, panelRight, panelBottom), 16, 16, paint);
-
-		// Viền
-		paint.setStyle(Paint.Style.STROKE);
-		paint.setStrokeWidth(3);
-		paint.setColor(Color.WHITE);
-		canvas.drawRoundRect(new android.graphics.RectF(panelLeft, panelTop, panelRight, panelBottom), 16, 16, paint);
-
-		// Nội dung
-		paint.setStyle(Paint.Style.FILL);
-		paint.setTextSize(38);
-		int y = contentTop;
-
-		// 1) HP (hearts)
-		paint.setColor(Color.WHITE);
-		canvas.drawText("HP:", x, y, paint);
-		int heartX = x + 80;
-		for (int i = 0; i < lives; i++) {
-			int size = 26;
-			drawHeart(canvas, heartX + i * (size + 8), y - 18, size, Color.RED);
-		}
-		y += lineHeight;
-
-		// 2) Attack Buff: ON/Không có
-		boolean attackOn = hasAttackBuff && System.currentTimeMillis() < attackBuffEndTime;
-		paint.setColor(attackOn ? Color.RED : Color.LTGRAY);
-		String attackBuffText = attackOn
-			? ("Attack Buff: ON (" + Math.max(0, (attackBuffEndTime - System.currentTimeMillis())/1000) + "s)")
-			: "Attack Buff: Không có";
-		canvas.drawText(attackBuffText, x, y, paint);
-		y += lineHeight;
-
-		// 3) Shell: Shield/Wall/Không có
-		boolean shieldOn = hasShield || (hasWallShield && wall != null);
-		paint.setColor(shieldOn ? Color.CYAN : Color.LTGRAY);
-		String shellText;
-		if (hasShield) shellText = "Shell: Shield ACTIVE";
-		else if (hasWallShield && wall != null) shellText = "Shell: Wall ACTIVE";
-		else shellText = "Shell: Không có";
-		canvas.drawText(shellText, x, y, paint);
-		y += lineHeight;
-
-		// Các buff bổ sung (chỉ hiển thị khi ACTIVE)
-		if (hasTripleShot && System.currentTimeMillis() < tripleShotEndTime) {
-			paint.setColor(Color.YELLOW);
-			long s = Math.max(0, (tripleShotEndTime - System.currentTimeMillis())/1000);
-			canvas.drawText("Triple Shot: " + s + "s", x, y, paint);
-			y += lineHeight;
-		}
-		if (hasExplosiveBullet && System.currentTimeMillis() < explosiveBulletEndTime) {
-			paint.setColor(Color.rgb(255, 165, 0));
-			long s = Math.max(0, (explosiveBulletEndTime - System.currentTimeMillis())/1000);
-			canvas.drawText("Explosive Bullet: " + s + "s", x, y, paint);
-			y += lineHeight;
-		}
-		if (hasSpeedBoost && System.currentTimeMillis() < speedBoostEndTime) {
-			paint.setColor(Color.MAGENTA);
-			long s = Math.max(0, (speedBoostEndTime - System.currentTimeMillis())/1000);
-			canvas.drawText("No Speed Limit: " + s + "s", x, y, paint);
-			y += lineHeight;
-		}
-		if (hasImmortality && System.currentTimeMillis() < immortalityEndTime) {
-			paint.setColor(Color.rgb(255, 20, 147));
-			long s = Math.max(0, (immortalityEndTime - System.currentTimeMillis())/1000);
-			canvas.drawText("Immortality: " + s + "s", x, y, paint);
-			y += lineHeight;
-		}
-		if (hasWallShield && System.currentTimeMillis() < wallShieldEndTime) {
-			paint.setColor(Color.CYAN);
-			long s = Math.max(0, (wallShieldEndTime - System.currentTimeMillis())/1000);
-			canvas.drawText("Wall Shield: " + s + "s", x, y, paint);
-			// y += lineHeight; // cuối panel, không cần tăng nếu không có thêm dòng
-		}
-	}
     
     private void startBackgroundMusic() {
         try {
